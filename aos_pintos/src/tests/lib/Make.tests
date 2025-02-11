@@ -1,0 +1,9 @@
+# -*- makefile -*-
+
+# Test names.
+tests/lib_TESTS = $(addprefix tests/lib/, sorted-thread-list unsorted-thread-list \
+                    bad-input not-found)
+
+# Sources for tests.
+tests/lib_SRC = tests/lib/listfunctests.c
+
