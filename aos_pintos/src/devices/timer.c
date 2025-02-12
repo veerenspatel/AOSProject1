@@ -111,16 +111,16 @@ void timer_sleep (int64_t ticks)
 
   ASSERT (intr_get_level () == INTR_ON);
 
-  struct blocked_thread entry;
-  entry.blocked_thread = thread_current ();
-  entry.end_time = end_time;
+  struct blocked_thread *entry = malloc(sizeof(struct blocked_thread));
+  entry->blocked_thread = thread_current ();
+  entry->end_time = end_time;
 
   enum intr_level old_level = intr_disable();  // Disable interrupts
-  printf("End Time: %lld, tid: %d\n",end_time,entry.blocked_thread->tid);
+  printf("End Time: %lld, tid: %d\n",end_time,entry->blocked_thread->tid);
 
   //lock curr thread, insert into list, and unlock. The purpose of the lock is to make only one thread is editing the list. 
   lock_acquire(&sleep_lock);
-  list_insert_ordered (&blocked_list, &entry.elem, compare_wake_time, NULL);
+  list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);
   lock_release(&sleep_lock);
 
   thread_block(); //suspend the current thread
@@ -187,11 +187,11 @@ static void timer_interrupt (struct intr_frame *args UNUSED)
             int64_t end_time = f->end_time;
             printf("End Time: %lld, Current_time: %lld, tid: %d\n,",f->end_time,current_time,f->blocked_thread->tid);
             //printf("%lld:\n",end_time);
-            if(end_time>current_time){ 
+            if(current_time>current_time){ 
               //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
               //and unblock it so that it can cont. to execute
               add_thread_to_ready_list(f->blocked_thread);
-              list_pop_front(&blocked_list); 
+              list_remove(&f->elem);
               thread_unblock(f->blocked_thread);
             }
           }
