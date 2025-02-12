@@ -20,6 +20,17 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+static bool blocked_list_initialized = false;
+
+static struct list blocked_list;
+
+struct blocked_thread
+  {
+    struct list_elem elem;
+    int64_t end_time;
+    struct thread *blocked_thread;
+  };
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -34,6 +45,7 @@ static void real_time_delay (int64_t num, int32_t denom);
    and registers the corresponding interrupt. */
 void timer_init (void)
 {
+  list_init(&blocked_list);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -82,11 +94,22 @@ int64_t timer_elapsed (int64_t then) { return timer_ticks () - then; }
    be turned on. */
 void timer_sleep (int64_t ticks)
 {
+  blocked_list_initialized = true;
+
   int64_t start = timer_ticks ();
 
+  int64_t end_time = start + ticks;
+
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks)
-    thread_yield ();
+
+  struct blocked_thread entry;
+  entry.blocked_thread = thread_current ();
+  entry.end_time = end_time;
+
+  //insert 
+  list_push_back (&blocked_list, &entry.elem);
+
+  thread_yield ();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -138,6 +161,22 @@ void timer_print_stats (void)
 static void timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+
+struct list_elem *e;
+ for (e = list_begin (&blocked_list); e != list_end (&blocked_list);
+           e = list_next (e))
+        {
+          struct blocked_thread *f = list_entry (e, struct blocked_thread, elem);
+          //check end time
+          int64_t current_time = timer_ticks();
+          int64_t end_time = f->end_time;
+
+          if(end_time>current_time){ 
+            //add to ready list
+            add_thread_to_ready_list(f->blocked_thread);
+          }
+
+        }
   thread_tick ();
 }
 

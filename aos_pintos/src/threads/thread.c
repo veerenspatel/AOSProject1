@@ -296,6 +296,10 @@ void thread_yield (void)
   intr_set_level (old_level);
 }
 
+void add_thread_to_ready_list (struct thread *thread_to_add){
+  list_push_back(&ready_list, &thread_to_add->elem);
+}
+
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void thread_foreach (thread_action_func *func, void *aux)
