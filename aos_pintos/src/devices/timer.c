@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include <stdlib.h>
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -20,9 +21,9 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
-static bool blocked_list_initialized = false;
-
 static struct list blocked_list;
+static bool initBlockecList = false;
+static struct lock sleep_lock;
 
 struct blocked_thread
   {
@@ -40,12 +41,16 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+bool compare_wake_time(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void timer_init (void)
 {
-  list_init(&blocked_list);
+  if(!initBlockecList){
+    list_init(&blocked_list);
+    initBlockecList = true;
+  }
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -86,6 +91,13 @@ int64_t timer_ticks (void)
   return t;
 }
 
+//comparison function to maintain order in sleep_list
+bool compare_wake_time(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+    struct blocked_thread *t_a = list_entry(a, struct thread, elem);
+    struct blocked_thread *t_b = list_entry(b, struct thread, elem);
+    return t_a->end_time < t_b->end_time;  // Sort by wake-up time
+}
+
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
 int64_t timer_elapsed (int64_t then) { return timer_ticks () - then; }
@@ -94,22 +106,25 @@ int64_t timer_elapsed (int64_t then) { return timer_ticks () - then; }
    be turned on. */
 void timer_sleep (int64_t ticks)
 {
-  blocked_list_initialized = true;
-
   int64_t start = timer_ticks ();
-
-  int64_t end_time = start + ticks;
+  int64_t end_time = abs(start + ticks); //handling case of possible negative ticks value
 
   ASSERT (intr_get_level () == INTR_ON);
 
-  struct blocked_thread entry;
-  entry.blocked_thread = thread_current ();
-  entry.end_time = end_time;
+  struct blocked_thread *entry = malloc(sizeof(struct blocked_thread));
+  entry->blocked_thread = thread_current ();
+  entry->end_time = end_time;
 
-  //insert 
-  list_push_back (&blocked_list, &entry.elem);
+  enum intr_level old_level = intr_disable();  // Disable interrupts
+  printf("End Time: %lld, tid: %d\n",end_time,entry->blocked_thread->tid);
 
-  thread_yield ();
+  //lock curr thread, insert into list, and unlock. The purpose of the lock is to make only one thread is editing the list. 
+  lock_acquire(&sleep_lock);
+  list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);
+  lock_release(&sleep_lock);
+
+  thread_block(); //suspend the current thread
+  intr_set_level(old_level); //renable interrupt
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -161,22 +176,25 @@ void timer_print_stats (void)
 static void timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-
-struct list_elem *e;
- for (e = list_begin (&blocked_list); e != list_end (&blocked_list);
-           e = list_next (e))
-        {
-          struct blocked_thread *f = list_entry (e, struct blocked_thread, elem);
-          //check end time
-          int64_t current_time = timer_ticks();
-          int64_t end_time = f->end_time;
-
-          if(end_time>current_time){ 
-            //add to ready list
-            add_thread_to_ready_list(f->blocked_thread);
+  //printf("Int:\n");
+  struct list_elem *e;
+  for (e = list_begin (&blocked_list); e != list_end (&blocked_list);
+            e = list_next (e))
+          {
+            struct blocked_thread *f = list_entry (e, struct blocked_thread, elem);
+            //check end time
+            int64_t current_time = timer_ticks();
+            int64_t end_time = f->end_time;
+            printf("End Time: %lld, Current_time: %lld, tid: %d\n,",f->end_time,current_time,f->blocked_thread->tid);
+            //printf("%lld:\n",end_time);
+            if(current_time>current_time){ 
+              //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
+              //and unblock it so that it can cont. to execute
+              add_thread_to_ready_list(f->blocked_thread);
+              list_remove(&f->elem);
+              thread_unblock(f->blocked_thread);
+            }
           }
-
-        }
   thread_tick ();
 }
 
