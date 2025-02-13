@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
 #include <stdlib.h>
 
 /* See [8254] for hardware details of the 8254 timer chip. */
@@ -49,6 +50,7 @@ void timer_init (void)
 {
   if(!initBlockecList){
     list_init(&blocked_list);
+    lock_init(&sleep_lock);
     initBlockecList = true;
   }
   pit_configure_channel (0, 2, TIMER_FREQ);
@@ -93,8 +95,8 @@ int64_t timer_ticks (void)
 
 //comparison function to maintain order in sleep_list
 bool compare_wake_time(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-    struct blocked_thread *t_a = list_entry(a, struct thread, elem);
-    struct blocked_thread *t_b = list_entry(b, struct thread, elem);
+    struct blocked_thread *t_a = list_entry(a, struct blocked_thread, elem);
+    struct blocked_thread *t_b = list_entry(b, struct blocked_thread, elem);
     return t_a->end_time < t_b->end_time;  // Sort by wake-up time
 }
 
@@ -107,7 +109,7 @@ int64_t timer_elapsed (int64_t then) { return timer_ticks () - then; }
 void timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
-  int64_t end_time = abs(start + ticks); //handling case of possible negative ticks value
+  int64_t end_time = start + ticks;
 
   ASSERT (intr_get_level () == INTR_ON);
 
@@ -116,13 +118,16 @@ void timer_sleep (int64_t ticks)
   entry->end_time = end_time;
 
   enum intr_level old_level = intr_disable();  // Disable interrupts
-  printf("End Time: %lld, tid: %d\n",end_time,entry->blocked_thread->tid);
-
+  //printf("End Time: %lld, tid: %d\n",end_time,entry->blocked_thread->tid);
+  //printf("%p, %p\n", blocked_list.head, blocked_list.tail);
+  
   //lock curr thread, insert into list, and unlock. The purpose of the lock is to make only one thread is editing the list. 
-  lock_acquire(&sleep_lock);
+  //list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);
+  lock_acquire (&sleep_lock);
   list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);
+  //printf("Sleep:, %d\n", list_size(&blocked_list));
+  
   lock_release(&sleep_lock);
-
   thread_block(); //suspend the current thread
   intr_set_level(old_level); //renable interrupt
 }
@@ -176,7 +181,7 @@ void timer_print_stats (void)
 static void timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  //printf("Int:\n");
+  //printf("Int:, %d, ticks:%lld\n", list_size(&blocked_list), ticks);
   struct list_elem *e;
   for (e = list_begin (&blocked_list); e != list_end (&blocked_list);
             e = list_next (e))
@@ -185,12 +190,12 @@ static void timer_interrupt (struct intr_frame *args UNUSED)
             //check end time
             int64_t current_time = timer_ticks();
             int64_t end_time = f->end_time;
-            printf("End Time: %lld, Current_time: %lld, tid: %d\n,",f->end_time,current_time,f->blocked_thread->tid);
+            //printf("End Time: %lld, Current_time: %lld, tid: %d\n",f->end_time,current_time,f->blocked_thread->tid);
             //printf("%lld:\n",end_time);
-            if(current_time>current_time){ 
+            if(current_time>=end_time){ 
               //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
               //and unblock it so that it can cont. to execute
-              add_thread_to_ready_list(f->blocked_thread);
+
               list_remove(&f->elem);
               thread_unblock(f->blocked_thread);
             }
