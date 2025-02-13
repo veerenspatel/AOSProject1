@@ -298,14 +298,12 @@ void thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-    list_push_back (&ready_list, &cur->elem);
+    //list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, compare_priority, NULL); 
+
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
-}
-
-void add_thread_to_ready_list (struct thread *thread_to_add){
-  list_push_back(&ready_list, &thread_to_add->elem);
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
@@ -326,7 +324,18 @@ void thread_foreach (thread_action_func *func, void *aux)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority (int new_priority)
 {
+  enum intr_level old_level = intr_disable ();
+
   thread_current ()->priority = new_priority;
+  list_sort(&ready_list, compare_priority, NULL);
+  intr_set_level (old_level);
+
+  if(!list_empty(&ready_list)){
+    struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
+    if(highest->priority > thread_current()->priority){
+      thread_yield();
+    }
+  }
 }
 
 /* Returns the current thread's priority. */

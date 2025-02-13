@@ -184,12 +184,12 @@ static void timer_interrupt (struct intr_frame *args UNUSED)
     //check if curr time has reached thread's end time
     if(timer_ticks() >= f->end_time){
       //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
-      //and unblock it so that it can cont. to execute
-      list_remove(&f->elem);
+      //and unblock it so that it can continue to execute
+      list_pop_front(&blocked_list);
       thread_unblock(f->blocked_thread);
     }
     else{
-      break; //break bc the rest of the threads should have a great end time 
+      break; //break bc the rest of the threads should have a greater end time 
     }
     e = list_next (e);
   }
