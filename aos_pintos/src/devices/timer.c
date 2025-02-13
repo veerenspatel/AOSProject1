@@ -118,16 +118,12 @@ void timer_sleep (int64_t ticks)
   entry->end_time = end_time;
 
   enum intr_level old_level = intr_disable();  // Disable interrupts
-  //printf("End Time: %lld, tid: %d\n",end_time,entry->blocked_thread->tid);
-  //printf("%p, %p\n", blocked_list.head, blocked_list.tail);
   
   //lock curr thread, insert into list, and unlock. The purpose of the lock is to make only one thread is editing the list. 
-  //list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);
   lock_acquire (&sleep_lock);
-  list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);
-  //printf("Sleep:, %d\n", list_size(&blocked_list));
-  
+  list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);  
   lock_release(&sleep_lock);
+
   thread_block(); //suspend the current thread
   intr_set_level(old_level); //renable interrupt
 }
@@ -181,8 +177,9 @@ void timer_print_stats (void)
 static void timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  //printf("Int:, %d, ticks:%lld\n", list_size(&blocked_list), ticks);
   struct list_elem *e;
+  //we should rewrite this to a while loop that breaks once we reach a thread that 
+  //is not ready. That way we don't have to loop thru the entire list (faster but still O(N)).
   for (e = list_begin (&blocked_list); e != list_end (&blocked_list);
             e = list_next (e))
           {
@@ -190,12 +187,10 @@ static void timer_interrupt (struct intr_frame *args UNUSED)
             //check end time
             int64_t current_time = timer_ticks();
             int64_t end_time = f->end_time;
-            //printf("End Time: %lld, Current_time: %lld, tid: %d\n",f->end_time,current_time,f->blocked_thread->tid);
-            //printf("%lld:\n",end_time);
+
             if(current_time>=end_time){ 
               //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
               //and unblock it so that it can cont. to execute
-
               list_remove(&f->elem);
               thread_unblock(f->blocked_thread);
             }
