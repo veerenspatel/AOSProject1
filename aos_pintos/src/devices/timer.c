@@ -177,24 +177,22 @@ void timer_print_stats (void)
 static void timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  struct list_elem *e;
-  //we should rewrite this to a while loop that breaks once we reach a thread that 
-  //is not ready. That way we don't have to loop thru the entire list (faster but still O(N)).
-  for (e = list_begin (&blocked_list); e != list_end (&blocked_list);
-            e = list_next (e))
-          {
-            struct blocked_thread *f = list_entry (e, struct blocked_thread, elem);
-            //check end time
-            int64_t current_time = timer_ticks();
-            int64_t end_time = f->end_time;
-
-            if(current_time>=end_time){ 
-              //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
-              //and unblock it so that it can cont. to execute
-              list_remove(&f->elem);
-              thread_unblock(f->blocked_thread);
-            }
-          }
+  struct list_elem *e = list_begin(&blocked_list);
+  //Using a while loop here and breaking once we reach a thread that is not ready
+  while(e != list_end(&blocked_list)){
+    struct blocked_thread *f = list_entry (e, struct blocked_thread, elem);
+    //check if curr time has reached thread's end time
+    if(timer_ticks() >= f->end_time){
+      //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
+      //and unblock it so that it can cont. to execute
+      list_remove(&f->elem);
+      thread_unblock(f->blocked_thread);
+    }
+    else{
+      break; //break bc the rest of the threads should have a great end time 
+    }
+    e = list_next (e);
+  }
   thread_tick ();
 }
 
