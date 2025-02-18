@@ -197,6 +197,10 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   /* Add to run queue. */
   thread_unblock (t);
 
+  if(t->priority > thread_current()->priority){
+    thread_yield();
+  }
+
   return tid;
 }
 
@@ -325,11 +329,11 @@ void thread_foreach (thread_action_func *func, void *aux)
 void thread_set_priority (int new_priority)
 {
   enum intr_level old_level = intr_disable ();
-
+  
   thread_current ()->priority = new_priority;
   list_sort(&ready_list, compare_priority, NULL);
   intr_set_level (old_level);
-
+  
   if(!list_empty(&ready_list)){
     struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
     if(highest->priority > thread_current()->priority){
@@ -451,7 +455,16 @@ static void init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
-  list_push_back (&all_list, &t->allelem);
+  //list_push_back (&all_list, &t->allelem);
+  list_insert_ordered (&all_list, &t->allelem, compare_priority, NULL); 
+
+  // if(!list_empty(&ready_list)){
+  //   struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
+  //   if(highest->priority > thread_current()->priority){
+  //     thread_yield();
+  //   }
+  // }
+
   intr_set_level (old_level);
 }
 
