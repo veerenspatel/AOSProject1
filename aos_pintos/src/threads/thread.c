@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -176,7 +177,9 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
+  t->original_priority = priority;
   tid = t->tid = allocate_tid ();
+  list_init(&t->donated_priorities);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -201,6 +204,51 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   }
 
   return tid;
+}
+
+struct priority_elem {
+  int priority;
+  struct list_elem elem;
+};
+
+static bool compare_donated_priorities(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  struct priority_elem *p_a = list_entry(a, struct priority_elem, elem);
+  struct priority_elem *p_b = list_entry(b, struct priority_elem, elem);
+  return p_a->priority > p_b->priority;  // Sort by greatest priortiy
+}
+
+void thread_donate(struct thread *t, int priority) {
+  struct priority_elem *donated = malloc(sizeof (struct priority_elem));
+  donated->priority = priority;
+
+  list_insert_ordered (&t->donated_priorities, &donated->elem, compare_donated_priorities, NULL);
+  int max_donated = list_entry(list_head (&t->donated_priorities), struct priority_elem, elem)->priority;
+  t->priority = max_donated > t->original_priority ? max_donated : t->original_priority;
+
+  enum intr_level old_level;
+  old_level = intr_disable ();
+  list_sort(&ready_list, compare_priority, NULL);
+  intr_set_level (old_level);
+}
+
+void thread_undonate(struct thread *t, int priority) {
+  struct list_elem *cur = list_head(&t->donated_priorities);
+  while (cur != list_tail(&t->donated_priorities)) {
+    struct priority_elem *donated = list_entry(cur, struct priority_elem, elem);
+    if (donated->priority == priority) {
+      list_remove (cur);
+      free(donated);
+      break;
+    }
+    cur = list_next(cur);
+  }
+  int max_donated = list_entry(list_head (&t->donated_priorities), struct priority_elem, elem)->priority;
+  t->priority = max_donated > t->original_priority ? max_donated : t->original_priority;
+  
+  enum intr_level old_level;
+  old_level = intr_disable ();
+  list_sort(&ready_list, compare_priority, NULL);
+  intr_set_level (old_level);
 }
 
 //comparison function to maintain order in ready_list

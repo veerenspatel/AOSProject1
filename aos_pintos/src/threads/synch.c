@@ -189,8 +189,20 @@ void lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  enum intr_level old_level;
+  old_level = intr_disable ();
+
+  struct thread *holder = lock->holder;
+
+  if (holder != NULL) thread_donate(holder, thread_current()->priority);
+
   sema_down (&lock->semaphore);
+  
+  // if (holder != NULL) thread_undonate(holder, thread_current()->priority);
+
   lock->holder = thread_current ();
+
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
