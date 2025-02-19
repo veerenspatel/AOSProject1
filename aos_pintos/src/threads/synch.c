@@ -241,6 +241,7 @@ struct semaphore_elem
 {
   struct list_elem elem;      /* List element. */
   struct semaphore semaphore; /* This semaphore. */
+  int priority;
 };
 
 /* Initializes condition variable COND.  A condition variable
@@ -251,6 +252,12 @@ void cond_init (struct condition *cond)
   ASSERT (cond != NULL);
 
   list_init (&cond->waiters);
+}
+
+static bool compare_semaphore_elem(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  struct semaphore_elem *s_a = list_entry(a, struct semaphore_elem, elem);
+  struct semaphore_elem *s_b = list_entry(b, struct semaphore_elem, elem);
+  return s_a->priority > s_b->priority;  // Sort by greatest priortiy
 }
 
 /* Atomically releases LOCK and waits for COND to be signaled by
@@ -276,6 +283,7 @@ void cond_init (struct condition *cond)
 void cond_wait (struct condition *cond, struct lock *lock)
 {
   struct semaphore_elem waiter;
+  waiter.priority = thread_current ()->priority;
 
   ASSERT (cond != NULL);
   ASSERT (lock != NULL);
@@ -283,7 +291,7 @@ void cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  list_insert_ordered (&cond->waiters, &waiter.elem, compare_semaphore_elem, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
