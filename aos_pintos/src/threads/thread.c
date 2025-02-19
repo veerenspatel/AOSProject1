@@ -179,7 +179,6 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   init_thread (t, name, priority);
   t->original_priority = priority;
   tid = t->tid = allocate_tid ();
-  list_init(&t->donated_priorities);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -218,11 +217,14 @@ static bool compare_donated_priorities(const struct list_elem *a, const struct l
 }
 
 void thread_donate(struct thread *t, int priority) {
+
   struct priority_elem *donated = malloc(sizeof (struct priority_elem));
   donated->priority = priority;
 
   list_insert_ordered (&t->donated_priorities, &donated->elem, compare_donated_priorities, NULL);
-  int max_donated = list_entry(list_head (&t->donated_priorities), struct priority_elem, elem)->priority;
+
+  int max_donated = list_entry(list_begin (&t->donated_priorities), struct priority_elem, elem)->priority;
+
   t->priority = max_donated > t->original_priority ? max_donated : t->original_priority;
 
   enum intr_level old_level;
@@ -232,8 +234,8 @@ void thread_donate(struct thread *t, int priority) {
 }
 
 void thread_undonate(struct thread *t, int priority) {
-  struct list_elem *cur = list_head(&t->donated_priorities);
-  while (cur != list_tail(&t->donated_priorities)) {
+  struct list_elem *cur = list_begin(&t->donated_priorities);
+  while (cur != list_end(&t->donated_priorities)) {
     struct priority_elem *donated = list_entry(cur, struct priority_elem, elem);
     if (donated->priority == priority) {
       list_remove (cur);
@@ -242,7 +244,7 @@ void thread_undonate(struct thread *t, int priority) {
     }
     cur = list_next(cur);
   }
-  int max_donated = list_entry(list_head (&t->donated_priorities), struct priority_elem, elem)->priority;
+  int max_donated = list_entry(list_begin (&t->donated_priorities), struct priority_elem, elem)->priority;
   t->priority = max_donated > t->original_priority ? max_donated : t->original_priority;
   
   enum intr_level old_level;
@@ -500,6 +502,8 @@ static void init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+
+  list_init(&t->donated_priorities);
 
   old_level = intr_disable ();
   //list_push_back (&all_list, &t->allelem);

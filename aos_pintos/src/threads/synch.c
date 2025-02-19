@@ -198,7 +198,7 @@ void lock_acquire (struct lock *lock)
 
   sema_down (&lock->semaphore);
   
-  // if (holder != NULL) thread_undonate(holder, thread_current()->priority);
+  if (holder != NULL) thread_undonate(holder, thread_current()->priority);
 
   lock->holder = thread_current ();
 
