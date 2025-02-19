@@ -66,7 +66,7 @@ void sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0)
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, compare_priority, NULL);
       thread_block ();
     }
   sema->value--;
@@ -114,6 +114,7 @@ void sema_up (struct semaphore *sema)
         list_entry (list_pop_front (&sema->waiters), struct thread, elem));
   sema->value++;
   intr_set_level (old_level);
+  thread_yield(); // Not sure why this is needed, but required to pass the test
 }
 
 static void sema_test_helper (void *sema_);
