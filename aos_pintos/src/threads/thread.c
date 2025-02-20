@@ -177,7 +177,6 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
-  t->original_priority = priority;
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -210,54 +209,21 @@ struct priority_elem {
   struct list_elem elem;
 };
 
-static bool compare_donated_priorities(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+/*static bool compare_donated_priorities(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct priority_elem *p_a = list_entry(a, struct priority_elem, elem);
   struct priority_elem *p_b = list_entry(b, struct priority_elem, elem);
   return p_a->priority > p_b->priority;  // Sort by greatest priortiy
-}
-
-void thread_donate(struct thread *t, int priority) {
-
-  struct priority_elem *donated = malloc(sizeof (struct priority_elem));
-  donated->priority = priority;
-
-  list_insert_ordered (&t->donated_priorities, &donated->elem, compare_donated_priorities, NULL);
-
-  int max_donated = list_entry(list_begin (&t->donated_priorities), struct priority_elem, elem)->priority;
-
-  t->priority = max_donated > t->original_priority ? max_donated : t->original_priority;
-
-  enum intr_level old_level;
-  old_level = intr_disable ();
-  list_sort(&ready_list, compare_priority, NULL);
-  intr_set_level (old_level);
-}
-
-void thread_undonate(struct thread *t, int priority) {
-  struct list_elem *cur = list_begin(&t->donated_priorities);
-  while (cur != list_end(&t->donated_priorities)) {
-    struct priority_elem *donated = list_entry(cur, struct priority_elem, elem);
-    if (donated->priority == priority) {
-      list_remove (cur);
-      free(donated);
-      break;
-    }
-    cur = list_next(cur);
-  }
-  int max_donated = list_entry(list_begin (&t->donated_priorities), struct priority_elem, elem)->priority;
-  t->priority = max_donated > t->original_priority ? max_donated : t->original_priority;
-  
-  enum intr_level old_level;
-  old_level = intr_disable ();
-  list_sort(&ready_list, compare_priority, NULL);
-  intr_set_level (old_level);
-}
+}*/
 
 //comparison function to maintain order in ready_list
 bool compare_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread *t_a = list_entry(a, struct thread, elem);
   struct thread *t_b = list_entry(b, struct thread, elem);
   return t_a->priority > t_b->priority;  // Sort by greatest priortiy
+}
+
+int get_max(int a, int b) {
+  return a > b ? a : b;
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -294,6 +260,10 @@ void thread_unblock (struct thread *t)
   list_insert_ordered (&ready_list, &t->elem, compare_priority, NULL); 
   t->status = THREAD_READY;
   intr_set_level (old_level);
+}
+
+void sort_ready_list() {
+  list_sort(&ready_list, compare_priority, NULL);
 }
 
 /* Returns the name of the running thread. */
@@ -379,7 +349,18 @@ void thread_set_priority (int new_priority)
 {
   enum intr_level old_level = intr_disable ();
   
-  thread_current ()->priority = new_priority;
+  thread_current ()->original_priority = new_priority;
+
+  struct list_elem *e;
+  struct list *locks = &thread_current ()->held_locks;
+  int max_held_priority = 0;
+  for (e = list_begin(locks); e != list_end(locks); e = list_next(e))
+  {
+    struct lock *l = list_entry(e, struct lock, elem);
+    max_held_priority = l->max_priority_waiting > max_held_priority ? l->max_priority_waiting : max_held_priority;
+  }
+
+  thread_current ()->priority = new_priority > max_held_priority ? new_priority : max_held_priority;
   list_sort(&ready_list, compare_priority, NULL);
   intr_set_level (old_level);
   
@@ -502,8 +483,11 @@ static void init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->original_priority = priority;
 
   list_init(&t->donated_priorities);
+  list_init(&t->held_locks);
+  t->blocked_by = NULL;
 
   old_level = intr_disable ();
   //list_push_back (&all_list, &t->allelem);

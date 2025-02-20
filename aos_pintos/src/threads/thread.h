@@ -93,6 +93,8 @@ struct thread
   int original_priority;     /* Priority set/updated by the thread. */
   struct list_elem allelem;  /* List element for all threads list. */
   struct list donated_priorities; /* List of priorities donated from other threads */
+  struct list held_locks;
+  struct lock *blocked_by;
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
@@ -146,5 +148,7 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 bool compare_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+int get_max(int a, int b);
+void sort_ready_list(void);
 
 #endif /* threads/thread.h */
