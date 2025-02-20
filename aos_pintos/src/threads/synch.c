@@ -197,6 +197,7 @@ void lock_acquire (struct lock *lock)
   {
     lock->max_priority_waiting = get_max(lock->max_priority_waiting, thread_current()->priority);
     lock->holder->priority = get_max(lock->holder->priority, lock->max_priority_waiting);
+    // printf("Set holder priority to %d from thread %d (%p)\n", lock->holder->priority, thread_current()->priority, thread_current());
     sort_ready_list();
   }
   
@@ -249,7 +250,7 @@ void lock_release (struct lock *lock)
   enum intr_level old_level;
   old_level = intr_disable ();
 
-  list_remove(&lock->elem);
+  list_remove (&lock->elem);
 
   int max_held_priority = 0;
   struct thread *current = thread_current();
@@ -259,7 +260,7 @@ void lock_release (struct lock *lock)
     struct lock *l = list_entry(e, struct lock, elem);
     max_held_priority = get_max(l->max_priority_waiting, max_held_priority);
   }
-  thread_current()->priority = max_held_priority;
+  thread_current()->priority = get_max(max_held_priority, thread_current()->original_priority);
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
