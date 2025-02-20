@@ -177,7 +177,6 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
-  t->original_priority = priority;
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -379,7 +378,9 @@ void thread_set_priority (int new_priority)
 {
   enum intr_level old_level = intr_disable ();
   
-  thread_current ()->priority = new_priority;
+  thread_current ()->original_priority = new_priority;
+  int current_priority = thread_current ()->priority;
+  thread_current ()->priority = new_priority > current_priority ? new_priority : current_priority;
   list_sort(&ready_list, compare_priority, NULL);
   intr_set_level (old_level);
   
@@ -502,6 +503,7 @@ static void init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->original_priority = priority;
 
   list_init(&t->donated_priorities);
 

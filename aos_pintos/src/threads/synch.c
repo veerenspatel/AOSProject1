@@ -195,10 +195,15 @@ void lock_acquire (struct lock *lock)
   struct thread *holder = lock->holder;
 
   if (holder != NULL) thread_donate(holder, thread_current()->priority);
+  struct list_elem *e;
+  for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
+      e = list_next (e))
+  {
+    struct thread *f = list_entry (e, struct thread, elem);
+    thread_donate(thread_current(), f->priority);
+  }
 
   sema_down (&lock->semaphore);
-  
-  if (holder != NULL) thread_undonate(holder, thread_current()->priority);
 
   lock->holder = thread_current ();
 
@@ -235,7 +240,17 @@ void lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
+  struct list_elem *e;
+  for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
+      e = list_next (e))
+  {
+    struct thread *f = list_entry (e, struct thread, elem);
+    thread_undonate(thread_current(), f->priority);
+  }
   sema_up (&lock->semaphore);
+
+
+  thread_yield();
 }
 
 /* Returns true if the current thread holds LOCK, false
