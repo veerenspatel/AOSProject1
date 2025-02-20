@@ -109,6 +109,7 @@ void sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
+  list_sort(&sema->waiters, compare_priority, NULL);
   if (!list_empty (&sema->waiters))
     thread_unblock (
         list_entry (list_pop_front (&sema->waiters), struct thread, elem));
@@ -193,17 +194,26 @@ void lock_acquire (struct lock *lock)
   enum intr_level old_level;
   old_level = intr_disable ();
 
-  if (lock->holder != NULL)
-  {
-    lock->max_priority_waiting = get_max(lock->max_priority_waiting, thread_current()->priority);
-    lock->holder->priority = get_max(lock->holder->priority, lock->max_priority_waiting);
-    // printf("Set holder priority to %d from thread %d (%p)\n", lock->holder->priority, thread_current()->priority, thread_current());
+  struct thread *holder = lock->holder;
+  struct lock *current_lock = lock;
+  while (holder != NULL) {
+    // Donate to the holder thread
+    current_lock->max_priority_waiting = get_max(current_lock->max_priority_waiting, thread_current()->priority);
+    holder->priority = get_max(holder->priority, current_lock->max_priority_waiting);
+    // Update holder
+    current_lock = holder->blocked_by;
+    holder = current_lock != NULL ? current_lock->holder : NULL;
+  }
+
+  if (lock->holder != NULL) {
+    thread_current()->blocked_by = lock;
     sort_ready_list();
   }
   
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 
+  thread_current()->blocked_by = NULL;
   list_push_back(&thread_current()->held_locks, &lock->elem);
   struct list_elem *e;
   int max_waiting = 0;

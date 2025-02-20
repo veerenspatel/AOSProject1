@@ -94,6 +94,7 @@ struct thread
   struct list_elem allelem;  /* List element for all threads list. */
   struct list donated_priorities; /* List of priorities donated from other threads */
   struct list held_locks;
+  struct lock *blocked_by;
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */

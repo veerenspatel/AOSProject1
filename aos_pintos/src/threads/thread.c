@@ -487,6 +487,7 @@ static void init_thread (struct thread *t, const char *name, int priority)
 
   list_init(&t->donated_priorities);
   list_init(&t->held_locks);
+  t->blocked_by = NULL;
 
   old_level = intr_disable ();
   //list_push_back (&all_list, &t->allelem);
