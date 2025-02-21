@@ -178,6 +178,16 @@ void lock_init (struct lock *lock)
   sema_init (&lock->semaphore, 1);
 }
 
+static void set_lock_max_priority (struct lock *lock, int priority)
+{
+  lock->max_priority_waiting = get_max(lock->max_priority_waiting, priority);
+}
+
+static void set_lock_holder_priority (struct thread *holder, int piority)
+{
+  holder->priority = get_max(holder->priority, piority);
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -197,34 +207,41 @@ void lock_acquire (struct lock *lock)
 
   struct thread *holder = lock->holder;
   struct lock *current_lock = lock;
-  while (holder != NULL) {
-    // Donate to the holder thread
-    current_lock->max_priority_waiting = get_max(current_lock->max_priority_waiting, thread_current()->priority);
-    holder->priority = get_max(holder->priority, current_lock->max_priority_waiting);
-    // Update holder
-    current_lock = holder->blocked_by;
-    holder = current_lock != NULL ? current_lock->holder : NULL;
-  }
+  struct thread *last_thread = NULL;
+  while (holder != NULL)
+    {
+      last_thread = holder;
+      // Donate to the holder thread
+      set_lock_max_priority (current_lock, thread_current ()->priority);
+      set_lock_holder_priority (holder, current_lock->max_priority_waiting);
 
-  if (lock->holder != NULL) {
-    thread_current()->blocked_by = lock;
-    sort_ready_list();
-  }
+      // Update loop variables
+      current_lock = holder->blocked_by;
+      holder = current_lock != NULL ? current_lock->holder : NULL;
+    }
+
+  if (lock->holder != NULL)
+    {
+      thread_current ()->blocked_by = lock;
+      update_ready_list (last_thread);
+    }
   
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 
-  thread_current()->blocked_by = NULL;
-  list_push_back(&thread_current()->held_locks, &lock->elem);
-  struct list_elem *e;
+  thread_current ()->blocked_by = NULL;
+  list_push_back (&thread_current ()->held_locks, &lock->elem);
+
   int max_waiting = 0;
-  for (e = list_begin(&lock->semaphore.waiters); e != list_end(&lock->semaphore.waiters); e = list_next(e))
-  {
-    struct thread *t = list_entry(e, struct thread, elem);
-    max_waiting = get_max(t->priority, max_waiting);
-  }
+  for (struct list_elem *e = list_begin(&lock->semaphore.waiters);
+      e != list_end(&lock->semaphore.waiters);
+      e = list_next(e))
+    {
+      struct thread *thread = list_entry(e, struct thread, elem);
+      max_waiting = get_max (thread->priority, max_waiting);
+    }
   lock->max_priority_waiting = max_waiting;
-  lock->holder->priority = get_max(lock->holder->priority, lock->max_priority_waiting);
+  set_lock_holder_priority (lock->holder, lock->max_priority_waiting);
 
   intr_set_level (old_level);
 }

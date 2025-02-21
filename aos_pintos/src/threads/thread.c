@@ -262,8 +262,15 @@ void thread_unblock (struct thread *t)
   intr_set_level (old_level);
 }
 
-void sort_ready_list() {
+void sort_ready_list()
+{
   list_sort(&ready_list, compare_priority, NULL);
+}
+
+void update_ready_list (struct thread *thread)
+{
+  list_remove (&thread->elem);
+  list_insert_ordered (&ready_list, &thread->elem, compare_priority, NULL);
 }
 
 /* Returns the name of the running thread. */

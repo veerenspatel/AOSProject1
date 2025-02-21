@@ -146,8 +146,9 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-bool compare_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
-int get_max(int a, int b);
-void sort_ready_list(void);
+bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+int get_max (int a, int b);
+void sort_ready_list (void);
+void update_ready_list (struct thread *thread);
 
 #endif /* threads/thread.h */
