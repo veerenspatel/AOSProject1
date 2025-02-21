@@ -92,7 +92,6 @@ struct thread
   int priority;              /* Priority. */
   int original_priority;     /* Priority set/updated by the thread. */
   struct list_elem allelem;  /* List element for all threads list. */
-  struct list donated_priorities; /* List of priorities donated from other threads */
   struct list held_locks;
   struct lock *blocked_by;
 
