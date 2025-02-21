@@ -204,8 +204,8 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   return tid;
 }
 
-//comparison function to maintain order in ready_list
-bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+/* Compare two threads by their priority. */
+bool thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *t_a = list_entry (a, struct thread, elem);
   struct thread *t_b = list_entry (b, struct thread, elem);
@@ -243,15 +243,19 @@ void thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, compare_priority, NULL); 
+  list_insert_ordered (&ready_list, &t->elem, thread_compare_priority, NULL); 
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
 
+/* Reposition a thread in the ready list by its priority.
+   Requires interrupts to be DISABLED. */
 void update_ready_list (struct thread *thread)
 {
+  ASSERT (intr_get_level () == INTR_OFF);
+
   list_remove (&thread->elem);
-  list_insert_ordered (&ready_list, &thread->elem, compare_priority, NULL);
+  list_insert_ordered (&ready_list, &thread->elem, thread_compare_priority, NULL);
 }
 
 /* Returns the name of the running thread. */
@@ -309,7 +313,7 @@ void thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-    list_insert_ordered (&ready_list, &cur->elem, compare_priority, NULL); 
+    list_insert_ordered (&ready_list, &cur->elem, thread_compare_priority, NULL); 
 
   cur->status = THREAD_READY;
   schedule ();
@@ -331,11 +335,13 @@ void thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+/* Helper function to return the max of two integers. */
 int get_max (int a, int b)
 {
   return a > b ? a : b;
 }
 
+/* Get the highest priority of a lock held by the thread. */
 int get_max_held_priority (struct thread *thread)
 {
   int max_held_priority = 0;
@@ -359,7 +365,6 @@ void thread_set_priority (int new_priority)
   int max_held_priority = get_max_held_priority (thread_current ());
   thread_current ()->priority = get_max (new_priority, max_held_priority);
   thread_current ()->original_priority = new_priority;
-  list_sort (&ready_list, compare_priority, NULL);
   
   intr_set_level (old_level);                  // Re-enable Interrupts
   thread_yield ();
@@ -482,7 +487,7 @@ static void init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->held_locks);
 
   old_level = intr_disable ();
-  list_insert_ordered (&all_list, &t->allelem, compare_priority, NULL); 
+  list_insert_ordered (&all_list, &t->allelem, thread_compare_priority, NULL); 
   intr_set_level (old_level);
 }
 

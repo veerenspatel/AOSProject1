@@ -92,8 +92,8 @@ struct thread
   int priority;              /* Priority. */
   int original_priority;     /* Priority set/updated by the thread. */
   struct list_elem allelem;  /* List element for all threads list. */
-  struct list held_locks;
-  struct lock *blocked_by;
+  struct list held_locks;    /* List of locks held by the thread. */
+  struct lock *blocked_by;   /* Lock that the thread is waiting on. */
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
@@ -143,7 +143,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 void update_ready_list (struct thread *thread);
 
 int get_max (int a, int b);
