@@ -11,7 +11,6 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -197,33 +196,20 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   /* Add to run queue. */
   thread_unblock (t);
 
-  if(t->priority > thread_current()->priority){
-    thread_yield();
-  }
+  if (t->priority > thread_current()->priority)
+    {
+      thread_yield ();
+    }
 
   return tid;
 }
 
-struct priority_elem {
-  int priority;
-  struct list_elem elem;
-};
-
-/*static bool compare_donated_priorities(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-  struct priority_elem *p_a = list_entry(a, struct priority_elem, elem);
-  struct priority_elem *p_b = list_entry(b, struct priority_elem, elem);
-  return p_a->priority > p_b->priority;  // Sort by greatest priortiy
-}*/
-
 //comparison function to maintain order in ready_list
-bool compare_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-  struct thread *t_a = list_entry(a, struct thread, elem);
-  struct thread *t_b = list_entry(b, struct thread, elem);
+bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *t_a = list_entry (a, struct thread, elem);
+  struct thread *t_b = list_entry (b, struct thread, elem);
   return t_a->priority > t_b->priority;  // Sort by greatest priortiy
-}
-
-int get_max(int a, int b) {
-  return a > b ? a : b;
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -260,11 +246,6 @@ void thread_unblock (struct thread *t)
   list_insert_ordered (&ready_list, &t->elem, compare_priority, NULL); 
   t->status = THREAD_READY;
   intr_set_level (old_level);
-}
-
-void sort_ready_list()
-{
-  list_sort(&ready_list, compare_priority, NULL);
 }
 
 void update_ready_list (struct thread *thread)
@@ -328,7 +309,6 @@ void thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-    //list_push_back (&ready_list, &cur->elem);
     list_insert_ordered (&ready_list, &cur->elem, compare_priority, NULL); 
 
   cur->status = THREAD_READY;
@@ -351,32 +331,38 @@ void thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+int get_max (int a, int b)
+{
+  return a > b ? a : b;
+}
+
+int get_max_held_priority (struct thread *thread)
+{
+  int max_held_priority = 0;
+  struct list *locks = &thread->held_locks;
+  for (struct list_elem *e = list_begin (locks);
+      e != list_end (locks);
+      e = list_next (e))
+    {
+      struct lock *lock = list_entry (e, struct lock, elem);
+      max_held_priority = get_max (lock->max_priority_waiting, max_held_priority);
+    }
+
+  return max_held_priority;
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority (int new_priority)
 {
-  enum intr_level old_level = intr_disable ();
+  enum intr_level old_level = intr_disable (); // Disable Interrupts
   
+  int max_held_priority = get_max_held_priority (thread_current ());
+  thread_current ()->priority = get_max (new_priority, max_held_priority);
   thread_current ()->original_priority = new_priority;
-
-  struct list_elem *e;
-  struct list *locks = &thread_current ()->held_locks;
-  int max_held_priority = 0;
-  for (e = list_begin(locks); e != list_end(locks); e = list_next(e))
-  {
-    struct lock *l = list_entry(e, struct lock, elem);
-    max_held_priority = l->max_priority_waiting > max_held_priority ? l->max_priority_waiting : max_held_priority;
-  }
-
-  thread_current ()->priority = new_priority > max_held_priority ? new_priority : max_held_priority;
-  list_sort(&ready_list, compare_priority, NULL);
-  intr_set_level (old_level);
+  list_sort (&ready_list, compare_priority, NULL);
   
-  if(!list_empty(&ready_list)){
-    struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
-    if(highest->priority > thread_current()->priority){
-      thread_yield();
-    }
-  }
+  intr_set_level (old_level);                  // Re-enable Interrupts
+  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -491,21 +477,12 @@ static void init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   t->original_priority = priority;
-
-  list_init(&t->held_locks);
   t->blocked_by = NULL;
 
+  list_init(&t->held_locks);
+
   old_level = intr_disable ();
-  //list_push_back (&all_list, &t->allelem);
   list_insert_ordered (&all_list, &t->allelem, compare_priority, NULL); 
-
-  // if(!list_empty(&ready_list)){
-  //   struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
-  //   if(highest->priority > thread_current()->priority){
-  //     thread_yield();
-  //   }
-  // }
-
   intr_set_level (old_level);
 }
 

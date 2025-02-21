@@ -7,7 +7,6 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "threads/malloc.h"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -108,17 +107,16 @@ void timer_sleep (int64_t ticks)
 
   ASSERT (intr_get_level () == INTR_ON);
 
-  struct blocked_thread *entry = malloc (sizeof (struct blocked_thread));
-  entry->blocked_thread = thread_current ();
-  entry->end_time = end_time;
+  struct blocked_thread entry;
+  entry.blocked_thread = thread_current ();
+  entry.end_time = end_time;
 
   enum intr_level old_level = intr_disable ();  // Disable interrupts
   
-  list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);  
+  list_insert_ordered (&blocked_list, &entry.elem, compare_wake_time, NULL);  
   thread_block ();
 
   intr_set_level (old_level);                   // Re-enable interrupts
-  free (entry);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

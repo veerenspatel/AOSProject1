@@ -112,7 +112,8 @@ void sema_up (struct semaphore *sema)
   if (!list_empty (&sema->waiters))
     {
       list_sort (&sema->waiters, compare_priority, NULL);
-      thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+      struct thread *first = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
+      thread_unblock (first);
     }
   
   intr_set_level (old_level);                  // Re-enable Interrupts
@@ -180,12 +181,12 @@ void lock_init (struct lock *lock)
 
 static void set_lock_max_priority (struct lock *lock, int priority)
 {
-  lock->max_priority_waiting = get_max(lock->max_priority_waiting, priority);
+  lock->max_priority_waiting = get_max (lock->max_priority_waiting, priority);
 }
 
 static void set_lock_holder_priority (struct thread *holder, int piority)
 {
-  holder->priority = get_max(holder->priority, piority);
+  holder->priority = get_max (holder->priority, piority);
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -202,8 +203,7 @@ void lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   
-  enum intr_level old_level;
-  old_level = intr_disable ();
+  enum intr_level old_level = intr_disable (); // Disable Interrupts  
 
   struct thread *holder = lock->holder;
   struct lock *current_lock = lock;
@@ -227,15 +227,15 @@ void lock_acquire (struct lock *lock)
     }
   
   sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
 
+  lock->holder = thread_current ();
   thread_current ()->blocked_by = NULL;
   list_push_back (&thread_current ()->held_locks, &lock->elem);
 
   int max_waiting = 0;
-  for (struct list_elem *e = list_begin(&lock->semaphore.waiters);
-      e != list_end(&lock->semaphore.waiters);
-      e = list_next(e))
+  for (struct list_elem *e = list_begin (&lock->semaphore.waiters);
+      e != list_end (&lock->semaphore.waiters);
+      e = list_next (e))
     {
       struct thread *thread = list_entry(e, struct thread, elem);
       max_waiting = get_max (thread->priority, max_waiting);
@@ -243,7 +243,7 @@ void lock_acquire (struct lock *lock)
   lock->max_priority_waiting = max_waiting;
   set_lock_holder_priority (lock->holder, lock->max_priority_waiting);
 
-  intr_set_level (old_level);
+  intr_set_level (old_level);                  // Re-enable Interrupts
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -275,27 +275,18 @@ void lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  enum intr_level old_level;
-  old_level = intr_disable ();
+  enum intr_level old_level = intr_disable (); // Disable Interrupts
 
   list_remove (&lock->elem);
 
-  int max_held_priority = 0;
-  struct thread *current = thread_current();
-  struct list_elem *e;
-  for (e = list_begin(&current->held_locks); e != list_end(&current->held_locks); e = list_next(e))
-  {
-    struct lock *l = list_entry(e, struct lock, elem);
-    max_held_priority = get_max(l->max_priority_waiting, max_held_priority);
-  }
-  thread_current()->priority = get_max(max_held_priority, thread_current()->original_priority);
+  int max_held_priority = get_max_held_priority (thread_current ());
+  thread_current ()->priority = get_max(max_held_priority, thread_current ()->original_priority);
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
-  intr_set_level (old_level);
-
-  thread_yield();
+  intr_set_level (old_level);                  // Re-enable Interrupts
+  thread_yield ();
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -313,7 +304,7 @@ struct semaphore_elem
 {
   struct list_elem elem;      /* List element. */
   struct semaphore semaphore; /* This semaphore. */
-  int priority;
+  int priority;               /* Priority of the waiting thread */
 };
 
 /* Initializes condition variable COND.  A condition variable
@@ -326,9 +317,10 @@ void cond_init (struct condition *cond)
   list_init (&cond->waiters);
 }
 
-static bool compare_semaphore_elem(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-  struct semaphore_elem *s_a = list_entry(a, struct semaphore_elem, elem);
-  struct semaphore_elem *s_b = list_entry(b, struct semaphore_elem, elem);
+static bool compare_semaphore_elem(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct semaphore_elem *s_a = list_entry (a, struct semaphore_elem, elem);
+  struct semaphore_elem *s_b = list_entry (b, struct semaphore_elem, elem);
   return s_a->priority > s_b->priority;  // Sort by greatest priortiy
 }
 
