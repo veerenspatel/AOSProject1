@@ -7,8 +7,6 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "threads/malloc.h"
-#include <stdlib.h>
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -22,16 +20,15 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/* List of blocked threads waiting for an alarm */
 static struct list blocked_list;
-static bool initBlockecList = false;
-static struct lock sleep_lock;
 
 struct blocked_thread
-  {
-    struct list_elem elem;
-    int64_t end_time;
-    struct thread *blocked_thread;
-  };
+{
+  struct list_elem elem;          /* List element. */
+  int64_t wakeup_ticks;           /* When to wake up, in ticks. */
+  struct thread *blocked_thread;  /* The blocked thread. */
+};
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -42,17 +39,13 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
-bool compare_wake_time(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void timer_init (void)
 {
-  if(!initBlockecList){
-    list_init(&blocked_list);
-    lock_init(&sleep_lock);
-    initBlockecList = true;
-  }
+  list_init (&blocked_list);
+
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -93,39 +86,34 @@ int64_t timer_ticks (void)
   return t;
 }
 
-//comparison function to maintain order in sleep_list
-bool compare_wake_time(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-    struct blocked_thread *t_a = list_entry(a, struct blocked_thread, elem);
-    struct blocked_thread *t_b = list_entry(b, struct blocked_thread, elem);
-    return t_a->end_time < t_b->end_time;  // Sort by wake-up time
-}
-
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
 int64_t timer_elapsed (int64_t then) { return timer_ticks () - then; }
+
+/* Compare desired wakeup ticks for two blocked threads.
+   Used to keep the blocked_list in sorted order. */
+static bool compare_wake_time(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  struct blocked_thread *t_a = list_entry (a, struct blocked_thread, elem);
+  struct blocked_thread *t_b = list_entry (b, struct blocked_thread, elem);
+  return t_a->wakeup_ticks < t_b->wakeup_ticks;
+}
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void timer_sleep (int64_t ticks)
 {
-  int64_t start = timer_ticks ();
-  int64_t end_time = start + ticks;
-
   ASSERT (intr_get_level () == INTR_ON);
 
-  struct blocked_thread *entry = malloc(sizeof(struct blocked_thread));
-  entry->blocked_thread = thread_current ();
-  entry->end_time = end_time;
+  struct blocked_thread entry;
+  entry.blocked_thread = thread_current ();
+  entry.wakeup_ticks = timer_ticks () + ticks;
 
-  enum intr_level old_level = intr_disable();  // Disable interrupts
+  enum intr_level old_level = intr_disable ();  // Disable interrupts
   
-  //lock curr thread, insert into list, and unlock. The purpose of the lock is to make only one thread is editing the list. 
-  lock_acquire (&sleep_lock);
-  list_insert_ordered (&blocked_list, &entry->elem, compare_wake_time, NULL);  
-  lock_release(&sleep_lock);
+  list_insert_ordered (&blocked_list, &entry.elem, compare_wake_time, NULL);  
+  thread_block ();
 
-  thread_block(); //suspend the current thread
-  intr_set_level(old_level); //renable interrupt
+  intr_set_level (old_level);                   // Re-enable interrupts
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -177,22 +165,23 @@ void timer_print_stats (void)
 static void timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  struct list_elem *e = list_begin(&blocked_list);
-  //Using a while loop here and breaking once we reach a thread that is not ready
-  while(e != list_end(&blocked_list)){
-    struct blocked_thread *f = list_entry (e, struct blocked_thread, elem);
-    //check if curr time has reached thread's end time
-    if(timer_ticks() >= f->end_time){
-      //pop the thread that is ready to execute again, add it to the ready list to be scheduled again, 
-      //and unblock it so that it can continue to execute
-      list_pop_front(&blocked_list);
-      thread_unblock(f->blocked_thread);
+
+  /* Loop over the blocked threads, waking up those that requested to sleep
+     until the current tick. The blocked list is sorted so we can avoid 
+     iterating through the whole list and exit early. */
+  struct list_elem *e = list_head (&blocked_list);
+  while ((e = list_next (e)) != list_end (&blocked_list))
+    {
+      struct blocked_thread *blocked = list_entry (e, struct blocked_thread, elem);
+      if (ticks >= blocked->wakeup_ticks)
+        {
+          list_remove (e);
+          thread_unblock (blocked->blocked_thread);
+        }
+      else
+        break;
     }
-    else{
-      break; //break bc the rest of the threads should have a greater end time 
-    }
-    e = list_next (e);
-  }
+
   thread_tick ();
 }
 
